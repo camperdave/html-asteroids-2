@@ -1,5 +1,10 @@
 (function() {
 function Asteroids() {
+	if ( ! window.ASTEROIDS )
+		window.ASTEROIDS = {
+			enemiesKilled: 0
+		};
+	
 	/*
 		Classes
 	*/
@@ -98,7 +103,7 @@ function Asteroids() {
 		},
 		
 		angle: function() {
-			return Math.atan2(this.x, this.y);
+			return Math.atan2(this.y, this.x);
 		},
 		
 		collidesWith: function(rect) {
@@ -155,9 +160,9 @@ function Asteroids() {
 			var v3 = line2.p1, v4 = line2.p2;
 			
 			var denom = ((v4.y - v3.y) * (v2.x - v1.x)) - ((v4.x - v3.x) * (v2.y - v1.y));
-		    var numerator = ((v4.x - v3.x) * (v1.y - v3.y)) - ((v4.y - v3.y) * (v1.x - v3.x));
+			var numerator = ((v4.x - v3.x) * (v1.y - v3.y)) - ((v4.y - v3.y) * (v1.x - v3.x));
 		
-		    var numerator2 = ((v2.x - v1.x) * (v1.y - v3.y)) - ((v2.y - v1.y) * (v1.x - v3.x));
+			var numerator2 = ((v2.x - v1.x) * (v1.y - v3.y)) - ((v2.y - v1.y) * (v1.x - v3.x));
 			
 			if ( denom == 0.0 ) {
 				return false;
@@ -244,40 +249,46 @@ function Asteroids() {
 	// configuration directives are placed in local variables
 	var w = document.documentElement.clientWidth, h = document.documentElement.clientHeight;
 	var playerWidth = 20, playerHeight = 30;
-	var playerVerts = [[-1 * playerWidth / 2, -15], [playerWidth / 2, -15], [0, 15]];
 	
-	var ignoredTypes = ['HTML', 'HEAD', 'BODY', 'SCRIPT', 'TITLE', 'CANVAS', 'META', 'STYLE', 'LINK'];
+	var playerVerts = [[-1 * playerHeight/2, -1 * playerWidth/2], [-1 * playerHeight/2, playerWidth/2], [playerHeight/2, 0]];
+	
+	var ignoredTypes = ['HTML', 'HEAD', 'BODY', 'SCRIPT', 'TITLE', 'META', 'STYLE', 'LINK', 'SHAPE', 'LINE', 'GROUP', 'IMAGE', 'STROKE', 'FILL', 'SKEW', 'PATH', 'TEXTPATH']; // Half of these are for IE g_vml
 	var hiddenTypes = ['BR', 'HR'];
 	
-	var FPS = isIE ? 30 : 50;
+	var FPS = 50;
 	
 	// units/second
-	var acc           = 300;
-	var maxSpeed      = 600;
-	var rotSpeed      = 360; // one rotation per second
-	var bulletSpeed   = 700;
+	var acc			  = 300;
+	var maxSpeed	  = 600;
+	var rotSpeed	  = 360; // one rotation per second
+	var bulletSpeed	  = 700;
 	var particleSpeed = 400;
 	
 	var timeBetweenFire = 150; // how many milliseconds between shots
 	var timeBetweenBlink = 250; // milliseconds between enemy blink
-	var timeBetweenEnemyUpdate = 400;
+	var timeBetweenEnemyUpdate = isIE ? 10000 : 2000;
 	var bulletRadius = 2;
-	var maxParticles = isIE ? 10 : 40;
+	var maxParticles = isIE ? 20 : 40;
 	var maxBullets = isIE ? 10 : 20;
 	
 	/*var highscoreURL = "http://asteroids.glonk.se/highscores.html";
 	var closeURL = "http://asteroids.glonk.se/close.png";*/
 	
-	// points
-	this.enemiesKilled = 0;
-	
 	// generated every 10 ms
 	this.flame = {r: [], y: []};
 	
 	// blink style
-	function addBlinkStyle() {
-		addStylesheet("ASTEROIDSYEAH", ".ASTEROIDSYEAHENEMY { outline: 2px dotted red; }");
+	this.toggleBlinkStyle = function () {
+		if (this.updated.blink.isActive) {
+			removeClass(document.body, 'ASTEROIDSBLINK');
+		} else {
+			addClass(document.body, 'ASTEROIDSBLINK');
+		}
+
+		this.updated.blink.isActive = !this.updated.blink.isActive;
 	};
+
+	addStylesheet(".ASTEROIDSBLINK .ASTEROIDSYEAHENEMY", "outline: 2px dotted red;");
 	
 	this.pos = new Vector(100, 100);
 	this.lastPos = false;
@@ -286,7 +297,7 @@ function Asteroids() {
 	this.keysPressed = {};
 	this.firedAt = false;
 	this.updated = {
-		enemies: new Date().getTime(), // the time before the enemyIndex was last updated
+		enemies: false, // if the enemy index has been updated since the user pressed B for Blink
 		flame: new Date().getTime(), // the time the flame was last updated
 		blink: {time: 0, isActive: false}
 	};
@@ -294,9 +305,9 @@ function Asteroids() {
 	
 	this.bullets = [];
 	
-	// Enemies lay first in this.enemies, when they are shot they are moved to this.dieing
+	// Enemies lay first in this.enemies, when they are shot they are moved to this.dying
 	this.enemies = [];
-	this.dieing = [];
+	this.dying = [];
 	this.totalEnemies = 0;
 	
 	// Particles are created when something is shot
@@ -304,23 +315,22 @@ function Asteroids() {
 	
 	// things to shoot is everything textual and an element of type not specified in types AND not a navigation element (see further down)
 	function updateEnemyIndex() {
-		for ( var i = 0, enemy; enemy = that.enemies[i]; i++ ) {
+		for ( var i = 0, enemy; enemy = that.enemies[i]; i++ )
 			removeClass(enemy, "ASTEROIDSYEAHENEMY");
-		}
 			
 		var all = document.body.getElementsByTagName('*');
 		that.enemies = [];
-		for ( var i = 0; i < all.length; i++ ) {
+		for ( var i = 0, el; el = all[i]; i++ ) {
 			// elements with className ASTEROIDSYEAH are part of the "game"
-			if ( indexOf(ignoredTypes, all[i].tagName) == -1 && hasOnlyTextualChildren(all[i]) && all[i].className != "ASTEROIDSYEAH" ) {
-				all[i].aSize = size(all[i]);
-				that.enemies.push(all[i]);
+			if ( indexOf(ignoredTypes, el.tagName.toUpperCase()) == -1 && el.prefix != 'g_vml_' && hasOnlyTextualChildren(el) && el.className != "ASTEROIDSYEAH" && el.offsetHeight > 0 ) {
+				el.aSize = size(el);
+				that.enemies.push(el);
 				
-				addClass(all[i], "ASTEROIDSYEAHENEMY");
+				addClass(el, "ASTEROIDSYEAHENEMY");
 				
 				// this is only for enemycounting
-				if ( ! all[i].aAdded ) {
-					all[i].aAdded = true;
+				if ( ! el.aAdded ) {
+					el.aAdded = true;
 					that.totalEnemies++;
 				}
 			}
@@ -328,36 +338,37 @@ function Asteroids() {
 	};
 	updateEnemyIndex();
 	
-	function createFlames() {
-		// Firstly create red flames
-		that.flame.r = [[0, 0]];
-		that.flame.y = [[0, 0]];
-		
-		var rWidth = playerWidth;
-		var rIncrease = playerWidth * 0.1;
-		for ( var x = 0; x < rWidth; x += rIncrease ) 
-			that.flame.r.push([x, -random(2, 7)]);
-		that.flame.r.push([rWidth, 0]);
-		
-		// yellow flames
-		var yWidth = playerWidth * 0.6;
-		var yIncrease = yWidth * 0.2;
-		for ( var x = 0; x < yWidth; x += yIncrease )
-			that.flame.y.push([x, -random(1, 4)]);
-		that.flame.y.push([yWidth, 0]);
-		
-		// Center 'em
-		var halfR = rWidth / 2, halfY = yWidth / 2;
-		for ( var i = 0; i < that.flame.r.length; i++ ) {
-			that.flame.r[i][0] -= halfR;
-			that.flame.r[i][1] -= playerHeight / 2;
-		}
-		
-		for ( var i = 0; i < that.flame.y.length; i++ ) {
-			that.flame.y[i][0] -= halfY;
-			that.flame.y[i][1] -= playerHeight / 2;
-		}
-	};
+	// createFlames create the vectors for the flames of the ship
+	var createFlames;
+	(function () {
+		var rWidth = playerWidth,
+			rIncrease = playerWidth * 0.1,
+			yWidth = playerWidth * 0.6,
+			yIncrease = yWidth * 0.2,
+			halfR = rWidth / 2,
+			halfY = yWidth / 2,
+			halfPlayerHeight = playerHeight / 2;
+
+		createFlames = function () {
+			// Firstly create red flames
+			that.flame.r = [[-1 * halfPlayerHeight, -1 * halfR]];
+			that.flame.y = [[-1 * halfPlayerHeight, -1 * halfY]];
+
+			for ( var x = 0; x < rWidth; x += rIncrease ) {
+				that.flame.r.push([-random(2, 7) - halfPlayerHeight, x - halfR]);
+			}
+
+			that.flame.r.push([-1 * halfPlayerHeight, halfR]);
+			
+			// ... And now the yellow flames
+			for ( var x = 0; x < yWidth; x += yIncrease ) {
+				that.flame.y.push([-random(2, 7) - halfPlayerHeight, x - halfY]);
+			}
+
+			that.flame.y.push([-1 * halfPlayerHeight, halfY]);
+		};
+	})();
+	
 	createFlames();
 	
 	/*
@@ -436,6 +447,31 @@ function Asteroids() {
 		return array.push.apply(array, rest);
 	};
 	
+	function applyVisibility(vis) {
+		for ( var i = 0, p; p = window.ASTEROIDSPLAYERS[i]; i++ ) {
+			p.gameContainer.style.visibility = vis;
+		}
+	}
+	
+	function getElementFromPoint(x, y) {
+		// hide canvas so it isn't picked up
+		applyVisibility('hidden');
+
+		var element = document.elementFromPoint(x, y);
+
+		if ( ! element ) {
+			applyVisibility('visible');
+			return false;
+		}
+
+		if ( element.nodeType == 3 )
+			element = element.parentNode;
+
+		// show the canvas again, hopefully it didn't blink
+		applyVisibility('visible');
+		return element;
+	};
+	
 	function addParticles(startPos) {
 		var time = new Date().getTime();
 		var amount = maxParticles;
@@ -447,6 +483,10 @@ function Asteroids() {
 				cameAlive: time
 			});
 		}
+	};
+	
+	function setScore() {
+		that.points.innerHTML = window.ASTEROIDS.enemiesKilled * 10;
 	};
 	
 	function hasOnlyTextualChildren(element) {
@@ -462,7 +502,6 @@ function Asteroids() {
 		}
 		return true;
 	};
-	window.hasOnlyTextualChildren = hasOnlyTextualChildren;
 	
 	function indexOf(arr, item, from){
 		if ( arr.indexOf ) return arr.indexOf(item, from);
@@ -484,16 +523,17 @@ function Asteroids() {
 		element.className = element.className.replace(new RegExp('(^|\\s)' + className + '(?:\\s|$)'), '$1');
 	};
 	
-	function addStylesheet(name, rules) {
-		var stylesheet = document.getElementById(name);
-		if ( ! stylesheet ) {
-			var stylesheet = document.createElement('style');
-			stylesheet.type = 'text/css';
-			stylesheet.rel = 'stylesheet';
-			stylesheet.id = name;
-			document.getElementsByTagName("head")[0].appendChild(stylesheet);
+	function addStylesheet(selector, rules) {
+		var stylesheet = document.createElement('style');
+		stylesheet.type = 'text/css';
+		stylesheet.rel = 'stylesheet';
+		stylesheet.id = 'ASTEROIDSYEAHSTYLES';
+		try {
+			stylesheet.innerHTML = selector + "{" + rules + "}";
+		} catch ( e ) {
+			stylesheet.styleSheet.addRule(selector, rules);
 		}
-		stylesheet.innerHTML += rules;
+		document.getElementsByTagName("head")[0].appendChild(stylesheet);
 	};
 	
 	function removeStylesheet(name) {
@@ -506,10 +546,14 @@ function Asteroids() {
 	/*
 		== Setup ==
 	*/
+	this.gameContainer = document.createElement('div');
+	this.gameContainer.className = 'ASTEROIDSYEAH';
+	document.body.appendChild(this.gameContainer);
 	
 	this.canvas = document.createElement('canvas');
 	this.canvas.setAttribute('width', w);
 	this.canvas.setAttribute('height', h);
+	this.canvas.className = 'ASTEROIDSYEAH';
 	with ( this.canvas.style ) {
 		width = w + "px";
 		height = h + "px";
@@ -521,6 +565,7 @@ function Asteroids() {
 		zIndex = "10000";
 	}
 	
+	// Is IE
 	if ( typeof G_vmlCanvasManager != 'undefined' ) {
 		this.canvas = G_vmlCanvasManager.initElement(this.canvas);
 		if ( ! this.canvas.getContext ) {
@@ -532,38 +577,72 @@ function Asteroids() {
 		}
 	}
 	
-	addEvent(this.canvas, 'mousedown', function() {
-		destroy.apply(that);
+	addEvent(this.canvas, 'mousedown', function(e) {
+		e = e || window.event;
+		var message = document.createElement('span');
+		message.style.position = 'absolute';
+		message.style.border = '1px solid #999';
+		message.style.background = 'white';
+		message.style.color = "black";
+		message.innerHTML = 'Press Esc to quit';
+		document.body.appendChild(message);
+		
+		var x = e.pageX || (e.clientX + document.documentElement.scrollLeft);
+		var y = e.pageY || (e.clientY + document.documentElement.scrollTop);
+		message.style.left = x - message.offsetWidth/2 + 'px';
+		message.style.top = y - message.offsetHeight/2 + 'px';
+		
+		setTimeout(function() {
+			try {
+				message.parentNode.removeChild(message);
+			} catch ( e ) {}
+		}, 1000);
 	});
 	
-	document.body.appendChild(this.canvas);
+	var eventResize = function() {
+		w = document.documentElement.clientWidth;
+		h = document.documentElement.clientHeight;
+		
+		that.canvas.setAttribute('width', w);
+		that.canvas.setAttribute('height', h);
+	};
+	addEvent(window, 'resize', eventResize);
+	
+	this.gameContainer.appendChild(this.canvas);
 	this.ctx = this.canvas.getContext("2d");
 	
 	this.ctx.fillStyle = "black";
 	this.ctx.strokeStyle = "black";
 	
 	// navigation wrapper element
-	this.navigation = document.createElement('div');
-	this.navigation.className = "ASTEROIDSYEAH";
-	with ( this.navigation.style ) {
-		font = "Arial,sans-serif";
-		position = "fixed";
-		zIndex = "10001";
-		bottom = "10px";
-		right = "10px";
-		textAlign = "right";
+	if ( ! document.getElementById('ASTEROIDS-NAVIGATION') ) {
+		this.navigation = document.createElement('div');
+		this.navigation.id = "ASTEROIDS-NAVIGATION";
+		this.navigation.className = "ASTEROIDSYEAH";
+		with ( this.navigation.style ) {
+			fontFamily = "Arial,sans-serif";
+			position = "fixed";
+			zIndex = "10001";
+			bottom = "10px";
+			right = "10px";
+			textAlign = "right";
+		}
+		this.navigation.innerHTML = "(press esc to quit) ";
+		this.gameContainer.appendChild(this.navigation);
+		
+		// points
+		this.points = document.createElement('span');
+		this.points.id = 'ASTEROIDS-POINTS';
+		this.points.style.font = "28pt Arial, sans-serif";
+		this.points.style.fontWeight = "bold";
+		this.points.className = "ASTEROIDSYEAH";
+		this.navigation.appendChild(this.points);
+	} else {
+		this.navigation = document.getElementById('ASTEROIDS-NAVIGATION');
+		this.points = document.getElementById('ASTEROIDS-POINTS');
 	}
-	this.navigation.innerHTML = "(click anywhere to exit/press esc to quit) ";
-	document.body.appendChild(this.navigation);
 	
-	// points
-	this.points = document.createElement('span');
-	this.points.style.font = "28pt Arial, sans-serif";
-	this.points.style.fontWeight = "bold";
-	this.points.className = "ASTEROIDSYEAH";
-	this.navigation.appendChild(this.points);
-	
-	this.points.innerHTML = "0";
+	setScore();
 	
 	// highscore link
 	/*this.highscoreLink = document.createElement('a');
@@ -581,16 +660,18 @@ function Asteroids() {
 		return false;
 	};*/
 	
-	this.debug = document.createElement('span');
-	this.debug.className = "ASTEROIDSYEAH";
-	this.debug.innerHTML = "";
-	this.navigation.appendChild(this.debug);
+	// For ie
+	if ( typeof G_vmlCanvasManager != 'undefined' ) {
+		var children = this.canvas.getElementsByTagName('*');
+		for ( var i = 0, c; c = children[i]; i++ )
+			addClass(c, 'ASTEROIDSYEAH');
+	}
 	
 	/*
 		== Events ==
 	*/
 	
-	var eventKeydown =  function(event) {
+	var eventKeydown = function(event) {
 		event = event || window.event;
 		that.keysPressed[event.keyCode] = true;
 		
@@ -600,40 +681,60 @@ function Asteroids() {
 			break;
 		}
 		
+<<<<<<< HEAD
 		// check here so we can stop propogation appropriately
+=======
+		// check here so we can stop propagation appropriately
+>>>>>>> 7362b4cfb82cd3fc900ff521bce9fedc6129ef67
 		if ( indexOf([code('up'), code('down'), code('right'), code('left'), code(' '), code('B'), code('W'), code('A'), code('S'), code('D')], event.keyCode) != -1 ) {
 			if ( event.preventDefault )
 				event.preventDefault();
+			if ( event.stopPropagation)
+				event.stopPropagation();
+			event.returnValue = false;
+			event.cancelBubble = true;
 			return false;
 		}
 	};
-	addEvent(window, 'keydown', eventKeydown);
+	addEvent(document, 'keydown', eventKeydown);
 	
 	var eventKeypress = function(event) {
 		event = event || window.event;
 		if ( indexOf([code('up'), code('down'), code('right'), code('left'), code(' '), code('W'), code('A'), code('S'), code('D')], event.keyCode || event.which) != -1 ) {
 			if ( event.preventDefault )
 				event.preventDefault();
+			if ( event.stopPropagation )
+				event.stopPropagation();
+			event.returnValue = false;
+			event.cancelBubble = true;
 			return false;
 		}
 	};
-	addEvent(window, 'keypress', eventKeypress);
+	addEvent(document, 'keypress', eventKeypress);
 	
 	var eventKeyup = function(event) {
 		event = event || window.event;
 		that.keysPressed[event.keyCode] = false;
+<<<<<<< HEAD
 		switch ( event.keyCode ) {
 			case code('B'):
 				removeStylesheet("ASTEROIDSYEAH");
 			break;
 		}
+=======
+
+>>>>>>> 7362b4cfb82cd3fc900ff521bce9fedc6129ef67
 		if ( indexOf([code('up'), code('down'), code('right'), code('left'), code(' '), code('B'), code('W'), code('A'), code('S'), code('D')], event.keyCode) != -1 ) {
 			if ( event.preventDefault )
 				event.preventDefault();
+			if ( event.stopPropagation )
+				event.stopPropagation();
+			event.returnValue = false;
+			event.cancelBubble = true;
 			return false;
 		}
 	};
-	addEvent(window, 'keyup', eventKeyup);
+	addEvent(document, 'keyup', eventKeyup);
 	
 	/*
 		Context operations
@@ -649,22 +750,9 @@ function Asteroids() {
 		this.beginPath();
 		this.moveTo(xFrom, yFrom);
 		this.lineTo(xTo, yTo);
+		this.lineTo(xTo + 1, yTo + 1);
 		this.closePath();
-		this.stroke();
-	};
-	
-	this.ctx.drawRect = function(rect) {
-		var old = this.strokeStyle;
-		this.strokeStyle = "red";
-		this.strokeRect(rect.x, rect.y, rect.width, rect.height);
-		this.strokeStyle = old;
-	};
-	
-	this.ctx.drawLineFromLine = function(line) {
-		var oldC = this.strokeStyle;
-		this.strokeStyle = "green";
-		this.drawLine(line.p1.x, line.p1.y, line.p2.x, line.p2.y);
-		this.strokeStyle = oldC;
+		this.fill();
 	};
 	
 	this.ctx.tracePoly = function(verts) {
@@ -678,35 +766,46 @@ function Asteroids() {
 	this.ctx.drawPlayer = function() {
 		this.save();
 		this.translate(that.pos.x, that.pos.y);
-		this.rotate(-that.dir.angle());
+		this.rotate(that.dir.angle());
+		this.tracePoly(playerVerts);
+		this.fillStyle = "white";
+		this.fill();
 		this.tracePoly(playerVerts);
 		this.stroke();
 		this.restore();
 	};
 	
-	this.ctx.drawBullet = function(pos) {
-		this.beginPath();
-		this.arc(pos.x, pos.y, bulletRadius, 0, Math.PI*2, true);
-		this.closePath();
-		this.fill();
+	var PI_SQ = Math.PI*2;
+	
+	this.ctx.drawBullets = function(bullets) {
+		for ( var i = 0; i < bullets.length; i++ ) {
+			this.beginPath();
+			this.arc(bullets[i].pos.x, bullets[i].pos.y, bulletRadius, 0, PI_SQ, true);
+			this.closePath();
+			this.fill();
+		}
 	};
 	
 	var randomParticleColor = function() {
 		return (['red', 'yellow'])[random(0, 1)];
 	};
 	
-	this.ctx.drawParticle = function(particle) {
-		var oldColor = this.strokeStyle;
-		this.strokeStyle = randomParticleColor();
-		this.drawLine(particle.pos.x, particle.pos.y, particle.pos.x - particle.dir.x * 10, particle.pos.y - particle.dir.y * 10);
-		this.strokeStyle = oldColor;
+	this.ctx.drawParticles = function(particles) {
+		var oldColor = this.fillStyle;
+		
+		for ( var i = 0; i < particles.length; i++ ) {
+			this.fillStyle = randomParticleColor();
+			this.drawLine(particles[i].pos.x, particles[i].pos.y, particles[i].pos.x - particles[i].dir.x * 10, particles[i].pos.y - particles[i].dir.y * 10);
+		}
+		
+		this.fillStyle = oldColor;
 	};
 	
 	this.ctx.drawFlames = function(flame) {
 		this.save();
 		
 		this.translate(that.pos.x, that.pos.y);
-		this.rotate(-that.dir.angle());
+		this.rotate(that.dir.angle());
 		
 		var oldColor = this.strokeStyle;
 		this.strokeStyle = "red";
@@ -730,7 +829,6 @@ function Asteroids() {
 	
 	var isRunning = true;
 	var lastUpdate = new Date().getTime();
-	var hasKilled = false;
 	
 	this.update = function() {
 		var forceChange = false;
@@ -741,13 +839,6 @@ function Asteroids() {
 		var nowTime = new Date().getTime();
 		var tDelta = (nowTime - lastUpdate) / 1000;
 		lastUpdate = nowTime;
-		
-		// check enemy index timer and update that if needed
-		if ( nowTime - this.updated.enemies > timeBetweenEnemyUpdate && hasKilled ) {
-			updateEnemyIndex();
-			this.updated.enemies = nowTime;
-			hasKilled = false;
-		}
 		
 		// update flame and timer if needed
 		var drawFlame = false;
@@ -767,7 +858,7 @@ function Asteroids() {
 			drawFlame = true;
 		} else {		
 			// decrease speed of player
-			this.vel.mul(0.96);	
+			this.vel.mul(0.96);
 		}
 		
 		// rotate counter-clockwise
@@ -784,7 +875,7 @@ function Asteroids() {
 		
 		// fire
 		if ( this.keysPressed[code(' ')] && nowTime - this.firedAt > timeBetweenFire ) {
-			this.bullets.push({
+			this.bullets.unshift({
 				'dir': this.dir.cp(),
 				'pos': this.pos.cp(),
 				'startVel': this.vel.cp(),
@@ -794,25 +885,26 @@ function Asteroids() {
 			this.firedAt = nowTime;
 			
 			if ( this.bullets.length > maxBullets ) {
-				arrayRemove(this.bullets, 0);
+				this.bullets.pop();
 			}
 		}
 		
 		// add blink
 		if ( this.keysPressed[code('B')] ) {
+			if ( ! this.updated.enemies ) {
+				updateEnemyIndex();
+				this.updated.enemies = true;
+			}
+			
 			forceChange = true;
 			
 			this.updated.blink.time += tDelta * 1000;
 			if ( this.updated.blink.time > timeBetweenBlink ) {
-				if ( this.updated.blink.isActive ) {
-					removeStylesheet("ASTEROIDSYEAH");
-					this.updated.blink.isActive = false;
-				} else {
-					addBlinkStyle();
-					this.updated.blink.isActive = true;
-				}
+				this.toggleBlinkStyle();
 				this.updated.blink.time = 0;
 			}
+		} else {
+			this.updated.enemies = false;
 		}
 		
 		if ( this.keysPressed[code('esc')] ) {
@@ -843,74 +935,60 @@ function Asteroids() {
 			this.pos.y = 0;
 		} else if ( this.pos.y < 0 ) {
 			window.scrollTo(this.scrollPos.x, this.scrollPos.y - h * 0.75);
-			this.pos.y = h;	
+			this.pos.y = h;
 		}
 		
 		// update positions of bullets
-		for ( var i = 0; i < this.bullets.length; i++ ) {
+		for ( var i = this.bullets.length - 1; i >= 0; i-- ) {
 			// bullets should only live for 2 seconds
 			if ( nowTime - this.bullets[i].cameAlive > 2000 ) {
-				arrayRemove(this.bullets, i);
-				i--;
+				this.bullets.splice(i, 1);
+				forceChange = true;
 				continue;
 			}
 			
 			var bulletVel = this.bullets[i].dir.setLengthNew(bulletSpeed * tDelta).add(this.bullets[i].startVel.mulNew(tDelta));
-			var ray = new Line(this.bullets[i].pos.cp(), this.bullets[i].pos.addNew(bulletVel));
-			ray.shift(this.scrollPos);
 			
 			this.bullets[i].pos.add(bulletVel);
 			boundsCheck(this.bullets[i].pos);
 			
 			// check collisions
-			var didKill = false;
-			for ( var x = 0, enemy; enemy = this.enemies[x]; x++ ) {
-				if ( ray.intersectsWithRect(enemy.aSize) ) {
-					hasKilled = true;
-					
-					// move to dieing
-					this.dieing.push(enemy);
-					arrayRemove(this.enemies, x);
-					
-					// the shot was a kill
-					didKill = true;
-					
-					// create particles at position
-					addParticles(this.bullets[i].pos);
-					break;
-				}
-			}
+			var murdered = getElementFromPoint(this.bullets[i].pos.x, this.bullets[i].pos.y);
+			if (
+				murdered && murdered.tagName &&
+				indexOf(ignoredTypes, murdered.tagName.toUpperCase()) == -1 &&
+				hasOnlyTextualChildren(murdered) && murdered.className != "ASTEROIDSYEAH"
+			) {
+				didKill = true;
+				addParticles(this.bullets[i].pos);
+				this.dying.push(murdered);
 			
-			// If it hit something the bullet should go down with it
-			if ( didKill ) {
-				arrayRemove(this.bullets, i);
-				i--;
+				this.bullets.splice(i, 1);
 				continue;
 			}
 		}
 		
-		// Remove all dieing elements
-		for ( var i = 0, enemy; enemy = this.dieing[i]; i++ ) {
-			this.enemiesKilled++;
-			
-			try {
-				enemy.parentNode.removeChild(enemy);
-			} catch ( e ) {}
-			
-			this.points.innerHTML = this.enemiesKilled * 10;
-			this.points.title = this.enemiesKilled + "/" + this.totalEnemies;
-			
-			arrayRemove(this.dieing, i);
-			i--;
+		if (this.dying.length) {
+			for ( var i = this.dying.length - 1; i >= 0; i-- ) {
+				try {
+					// If we have multiple spaceships it might have already been removed
+					if ( this.dying[i].parentNode )
+						window.ASTEROIDS.enemiesKilled++;
+
+					this.dying[i].parentNode.removeChild(this.dying[i]);
+				} catch ( e ) {}
+			}
+
+			setScore();
+			this.dying = [];
 		}
-		
+
 		// update particles position
-		for ( var i = 0; i < this.particles.length; i++ ) {
+		for ( var i = this.particles.length - 1; i >= 0; i-- ) {
 			this.particles[i].pos.add(this.particles[i].dir.mulNew(particleSpeed * tDelta * Math.random()));
 			
 			if ( nowTime - this.particles[i].cameAlive > 1000 ) {
-				arrayRemove(this.particles, i);
-				i--;
+				this.particles.splice(i, 1);
 				forceChange = true;
 				continue;
 			}
@@ -932,12 +1010,14 @@ function Asteroids() {
 				this.ctx.drawFlames(that.flame);
 			
 			// draw bullets
-			for ( var i = 0; i < this.bullets.length; i++ )
-				this.ctx.drawBullet(this.bullets[i].pos);
+			if (this.bullets.length) {
+				this.ctx.drawBullets(this.bullets);
+			}
 			
 			// draw particles
-			for ( var i = 0; i < this.particles.length; i++ )
-				this.ctx.drawParticle(this.particles[i]);
+			if (this.particles.length) {
+				this.ctx.drawParticles(this.particles);
+			}
 		}
 		this.lastPos = this.pos;
 		
@@ -951,35 +1031,39 @@ function Asteroids() {
 	setTimeout(updateFunc, 1000 / FPS);
 	
 	function destroy() {
-		removeEvent(window, 'keydown', eventKeydown);
-		removeEvent(window, 'keypress', eventKeypress);
-		removeEvent(window, 'keyup', eventKeyup);
+		removeEvent(document, 'keydown', eventKeydown);
+		removeEvent(document, 'keypress', eventKeypress);
+		removeEvent(document, 'keyup', eventKeyup);
+		removeEvent(window, 'resize', eventResize);
 		isRunning = false;
-		removeStylesheet("ASTEROIDSYEAH");
+		removeStylesheet("ASTEROIDSYEAHSTYLES");
 		removeClass(document.body, 'ASTEROIDSYEAH');
-		this.canvas.parentNode.removeChild(this.canvas);
-		this.navigation.parentNode.removeChild(this.navigation);
+		this.gameContainer.parentNode.removeChild(this.gameContainer);
 	};
 }
 
+if ( ! window.ASTEROIDSPLAYERS )
+	window.ASTEROIDSPLAYERS = [];
+
 if ( window.ActiveXObject ) {
 	try {
-    	var xamlScript = document.createElement('script');
-	    xamlScript.setAttribute('type', 'text/xaml');
-	    xamlScript.textContent = '<?xml version="1.0"?><Canvas xmlns="http://schemas.microsoft.com/client/2007"></Canvas>';
+		var xamlScript = document.createElement('script');
+		xamlScript.setAttribute('type', 'text/xaml');
+		xamlScript.textContent = '<?xml version="1.0"?><Canvas xmlns="http://schemas.microsoft.com/client/2007"></Canvas>';
 		document.getElementsByTagName('head')[0].appendChild(xamlScript);
 	} catch ( e ) {}
 	
 	var script = document.createElement("script");
-    script.setAttribute('type', 'text/javascript');
+	script.setAttribute('type', 'text/javascript');
 	script.onreadystatechange = function() {
-		if ( script.readyState == 'loaded' || script.readyState == 'completed' ) {
-			new Asteroids();
+		if ( script.readyState == 'loaded' || script.readyState == 'complete' ) {
+			if ( typeof G_vmlCanvasManager != "undefined" )
+				window.ASTEROIDSPLAYERS[window.ASTEROIDSPLAYERS.length] = new Asteroids();
 		}
 	};
-    script.src = "excanvas.js";    
+	script.src = "http://erkie.github.com/excanvas.js";
 	document.getElementsByTagName('head')[0].appendChild(script);
 }
-else new Asteroids();
+else window.ASTEROIDSPLAYERS[window.ASTEROIDSPLAYERS.length] = new Asteroids();
 
 })();
